@@ -22,26 +22,41 @@ export async function proxy(request: NextRequest) {
   // response we eventually return.
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          for (const { name, value } of cookiesToSet) {
-            request.cookies.set(name, value);
-          }
-          response = NextResponse.next({ request });
-          for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
-          }
-        },
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // A non-null assertion would be erased at runtime and let `undefined` reach the
+  // Supabase client, which throws a generic "URL and Key are required" from inside
+  // the library. Name the missing variable instead — this runs on every request, so
+  // getting it wrong takes the whole site down and the message is all you have.
+  if (!url || !anonKey) {
+    const missing = [
+      !url && "NEXT_PUBLIC_SUPABASE_URL",
+      !anonKey && "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(
+      `Missing env var(s): ${missing}. Set them in the hosting provider's environment settings and redeploy — NEXT_PUBLIC_* values are inlined at build time.`,
+    );
+  }
+
+  const supabase = createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        for (const { name, value } of cookiesToSet) {
+          request.cookies.set(name, value);
+        }
+        response = NextResponse.next({ request });
+        for (const { name, value, options } of cookiesToSet) {
+          response.cookies.set(name, value, options);
+        }
       },
     },
-  );
+  });
 
   // getUser() revalidates the token against Supabase. getSession() only reads the
   // cookie, which a client can forge — never use it to gate access.

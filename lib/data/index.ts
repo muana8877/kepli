@@ -11,6 +11,7 @@ import type {
 } from "@/types";
 import { deriveTodayAction } from "@/lib/today-action";
 import { today } from "@/lib/date";
+import { createClient } from "@/lib/supabase/client";
 import {
   MOCK_CHECKINS,
   MOCK_COMMITMENTS,
@@ -163,11 +164,31 @@ export async function getTodayCheckin(): Promise<Checkin | null> {
 }
 
 /**
- * Waitlist signup. No backend in Phase 1 — the email is validated and acknowledged
- * but not stored anywhere. Phase 2 inserts into the `waitlist` table.
+ * Waitlist signup — the first real write in the app.
+ *
+ * The `waitlist` table has RLS on with an insert-only policy and deliberately no
+ * select policy, so this client can add an address but can never read the list back.
  */
-export async function joinWaitlist(email: string): Promise<{ ok: boolean }> {
-  if (!isValidEmail(email)) return { ok: false };
+export async function joinWaitlist(
+  email: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isValidEmail(email)) {
+    return { ok: false, error: "That does not look like an email address." };
+  }
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("waitlist")
+    // Normalised so "Me@Example.com" and "me@example.com" collide on the unique
+    // index rather than creating two rows.
+    .insert({ email: email.trim().toLowerCase() });
+
+  // 23505 is a unique violation: the address is already on the list. That is the
+  // outcome the user wanted, so report success rather than an error they cannot act on.
+  if (error && error.code !== "23505") {
+    return { ok: false, error: "Could not save that. Try again in a moment." };
+  }
+
   return { ok: true };
 }
 

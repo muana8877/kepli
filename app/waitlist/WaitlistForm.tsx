@@ -1,29 +1,37 @@
 "use client";
 
 import { useState } from "react";
-import { isValidEmail } from "@/lib/data";
+import { joinWaitlist } from "@/lib/data";
 
 /**
- * Waitlist signup. No backend in Phase 1 — the form validates and acknowledges, and
- * `joinWaitlist` in `lib/data` becomes a Supabase insert in Phase 2.
+ * Waitlist signup. Writes to Supabase through the `lib/data` seam — this component
+ * never touches a Supabase client itself.
  *
- * The success state stays honest: it does not claim the address was stored.
+ * Validation lives in `joinWaitlist` rather than here so the rule holds for every
+ * caller, not just this form.
  */
 export function WaitlistForm() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const [done, setDone] = useState(false);
 
-  function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return;
 
-    if (!isValidEmail(email)) {
-      setError("That does not look like an email address.");
+    setPending(true);
+    setError(null);
+
+    const result = await joinWaitlist(email);
+
+    setPending(false);
+
+    if (!result.ok) {
+      setError(result.error ?? "Something went wrong. Try again.");
       return;
     }
 
-    // Phase 2: await joinWaitlist(email)
-    setError(null);
     setDone(true);
   }
 
@@ -33,9 +41,6 @@ export function WaitlistForm() {
         <p className="text-sm font-medium text-emerald-400">You&apos;re on the list.</p>
         <p className="mt-2 text-sm text-neutral-400">
           We&apos;ll email {email} when the beta opens.
-        </p>
-        <p className="mt-4 text-xs text-neutral-600">
-          Not stored yet — no backend in Phase 1.
         </p>
       </div>
     );
@@ -56,10 +61,11 @@ export function WaitlistForm() {
               setEmail(event.target.value);
               setError(null);
             }}
+            disabled={pending}
             placeholder="you@example.com"
             aria-invalid={error !== null}
             aria-describedby={error ? "email-error" : undefined}
-            className={`w-full rounded-lg border bg-neutral-950 p-3 text-sm text-neutral-100 placeholder:text-neutral-600 focus:outline-none ${
+            className={`w-full rounded-lg border bg-neutral-950 p-3 text-sm text-neutral-100 placeholder:text-neutral-600 focus:outline-none disabled:opacity-60 ${
               error
                 ? "border-red-800 focus:border-red-700"
                 : "border-neutral-800 focus:border-neutral-600"
@@ -69,9 +75,10 @@ export function WaitlistForm() {
 
         <button
           type="submit"
-          className="shrink-0 rounded-lg bg-white px-5 py-3 text-sm font-medium text-neutral-950 hover:bg-neutral-200"
+          disabled={pending}
+          className="shrink-0 rounded-lg bg-white px-5 py-3 text-sm font-medium text-neutral-950 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
         >
-          Join the waitlist
+          {pending ? "Joining…" : "Join the waitlist"}
         </button>
       </div>
 

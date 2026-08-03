@@ -11,13 +11,12 @@ import type {
 } from "@/types";
 import { deriveTodayAction } from "@/lib/today-action";
 import { today } from "@/lib/date";
-import { createClient } from "@/lib/supabase/client";
+import { createClient as createServerClient } from "@/lib/supabase/server";
 import {
   MOCK_CHECKINS,
   MOCK_COMMITMENTS,
   MOCK_GOAL,
   MOCK_MILESTONES,
-  MOCK_USER,
 } from "./mock";
 
 /**
@@ -40,9 +39,29 @@ const milestones: Milestone[] = [...MOCK_MILESTONES];
 const commitments: Commitment[] = [...MOCK_COMMITMENTS];
 const checkins: Checkin[] = [...MOCK_CHECKINS];
 
-/** Stand-in for the authenticated user. Replaced by the Supabase session in Phase 2. */
-export async function getCurrentUserId(): Promise<UUID> {
-  return MOCK_USER.id;
+/**
+ * The signed-in user's id, or null when signed out.
+ *
+ * Uses `getUser()`, which revalidates the token with Supabase. `getSession()` only
+ * decodes the cookie, which the client controls, so it must never gate access.
+ */
+export async function getCurrentUserId(): Promise<UUID | null> {
+  const supabase = await createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
+/**
+ * The signed-in user's id, or throw. Use for writes: `proxy.ts` already redirects
+ * signed-out visitors, so reaching a write without a session means something is
+ * wrong, and failing loudly beats attributing a row to the wrong person.
+ */
+async function requireUserId(): Promise<UUID> {
+  const userId = await getCurrentUserId();
+  if (!userId) throw new Error("Not signed in.");
+  return userId;
 }
 
 /**
@@ -93,7 +112,7 @@ export async function getTodayAction(): Promise<TodayAction | null> {
  * transaction so a half-created goal is impossible.
  */
 export async function createGoal(input: NewGoalInput): Promise<Goal> {
-  const userId = await getCurrentUserId();
+  const userId = await requireUserId();
   const goalId = newId("goal");
 
   const goal: Goal = {
@@ -137,7 +156,7 @@ export async function createGoal(input: NewGoalInput): Promise<Goal> {
  * F5 defines the real rules and is out of Phase 1 scope.
  */
 export async function saveCheckin(draft: CheckinDraft): Promise<Checkin> {
-  const userId = await getCurrentUserId();
+  const userId = await requireUserId();
   const hitCount = Object.values(draft.commitments_hit).filter(Boolean).length;
   const points = hitCount * 10 + (hitCount > 0 ? 5 : 0);
 
@@ -164,39 +183,11 @@ export async function getTodayCheckin(): Promise<Checkin | null> {
 }
 
 /**
- * Waitlist signup — the first real write in the app.
- *
- * The `waitlist` table has RLS on with an insert-only policy and deliberately no
- * select policy, so this client can add an address but can never read the list back.
+ * Waitlist writes live in `./waitlist` and are imported directly by the public
+ * waitlist form. They are deliberately not re-exported here: this module imports the
+ * server Supabase client, so anything re-exported from it would drag `next/headers`
+ * into the browser bundle and fail the build.
  */
-export async function joinWaitlist(
-  email: string,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!isValidEmail(email)) {
-    return { ok: false, error: "That does not look like an email address." };
-  }
-
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("waitlist")
-    // Normalised so "Me@Example.com" and "me@example.com" collide on the unique
-    // index rather than creating two rows.
-    .insert({ email: email.trim().toLowerCase() });
-
-  // 23505 is a unique violation: the address is already on the list. That is the
-  // outcome the user wanted, so report success rather than an error they cannot act on.
-  if (error && error.code !== "23505") {
-    return { ok: false, error: "Could not save that. Try again in a moment." };
-  }
-
-  return { ok: true };
-}
-
-export function isValidEmail(value: string): boolean {
-  // Deliberately permissive: catches typos and obvious junk without rejecting the
-  // long tail of technically-valid addresses.
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
 
 let idCounter = 0;
 function newId(prefix: string): UUID {

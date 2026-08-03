@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { joinWaitlist } from "@/lib/data";
+// Imported from the leaf module, not `@/lib/data`: that index imports the server
+// Supabase client, which cannot be bundled for the browser.
+import { joinWaitlist } from "@/lib/data/waitlist";
 
 /**
  * Waitlist signup. Writes to Supabase through the `lib/data` seam — this component

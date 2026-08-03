@@ -51,6 +51,17 @@ export function Nav() {
             </Link>
           );
         })}
+
+        {/* POST, not a link: a GET sign-out could be triggered by any third-party
+            page embedding the URL. */}
+        <form action="/auth/signout" method="post" className="ml-auto">
+          <button
+            type="submit"
+            className="rounded-md px-3 py-1.5 text-sm text-neutral-500 hover:text-white"
+          >
+            Sign out
+          </button>
+        </form>
       </nav>
     </header>
   );

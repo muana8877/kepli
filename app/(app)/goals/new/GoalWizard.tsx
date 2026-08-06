@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type {
   CommitmentDraft,
   GoalDraft,
@@ -9,6 +10,7 @@ import type {
   NewGoalInput,
 } from "@/types";
 import { addDays, toDateString } from "@/lib/date";
+import { createGoalAction } from "@/app/actions";
 
 /**
  * F1 — goal creation, in three steps: the goal, then monthly milestones, then weekly
@@ -18,13 +20,16 @@ import { addDays, toDateString } from "@/lib/date";
  * inputs, and the whole product exists for people who stall at exactly that moment.
  * Each step is independently valid, so the user can always move forward.
  *
- * Phase 1 holds everything in local state and shows a summary at the end. Phase 2
- * swaps `onSubmit` for `createGoal(input)` from `lib/data`.
+ * Submitting goes through the `createGoalAction` Server Action, which writes all
+ * three tables in one transaction.
  */
 
 type Step = 1 | 2 | 3 | 4;
 
 export function GoalWizard() {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>(1);
 
   const [goal, setGoal] = useState<GoalDraft>({
@@ -66,9 +71,20 @@ export function GoalWizard() {
       })),
     };
 
-    // Phase 2: await createGoal(input), then redirect to "/".
-    void input;
-    setStep(4);
+    setError(null);
+
+    startTransition(async () => {
+      const result = await createGoalAction(input);
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setStep(4);
+      // The goal banner lives in the layout, so pull the newly created goal.
+      router.refresh();
+    });
   }
 
   return (
@@ -103,6 +119,8 @@ export function GoalWizard() {
           value={commitments}
           onChange={setCommitments}
           valid={filledCommitments.length > 0}
+          pending={pending}
+          error={error}
           onBack={() => setStep(2)}
           onSubmit={onSubmit}
         />
@@ -201,7 +219,7 @@ function StepGoal({
           type="date"
           value={value.deadline}
           onChange={(e) => onChange({ ...value, deadline: e.target.value })}
-          className={`${inputClass} [color-scheme:dark]`}
+          className={`${inputClass} scheme-dark`}
         />
       </Field>
 
@@ -275,7 +293,7 @@ function StepMilestones({
                 value={milestone.target_date}
                 onChange={(e) => update(index, { target_date: e.target.value })}
                 aria-label={`Milestone ${index + 1} target date`}
-                className={`${inputClass} [color-scheme:dark]`}
+                className={`${inputClass} scheme-dark`}
               />
               {value.length > 1 && (
                 <button
@@ -317,12 +335,16 @@ function StepCommitments({
   value,
   onChange,
   valid,
+  pending,
+  error,
   onBack,
   onSubmit,
 }: {
   value: CommitmentDraft[];
   onChange: (next: CommitmentDraft[]) => void;
   valid: boolean;
+  pending: boolean;
+  error: string | null;
   onBack: () => void;
   onSubmit: () => void;
 }) {
@@ -392,18 +414,29 @@ function StepCommitments({
       </button>
 
       <div className="flex justify-between">
-        <button type="button" onClick={onBack} className={secondaryButtonClass}>
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={pending}
+          className={secondaryButtonClass}
+        >
           Back
         </button>
         <button
           type="button"
           onClick={onSubmit}
-          disabled={!valid}
+          disabled={!valid || pending}
           className={primaryButtonClass}
         >
-          Set the goal
+          {pending ? "Saving…" : "Set the goal"}
         </button>
       </div>
+
+      {error && (
+        <p role="alert" className="text-sm text-red-400">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -456,10 +489,6 @@ function Summary({
           ))}
         </ul>
       </div>
-
-      <p className="text-xs text-neutral-600">
-        Not saved yet — Phase 1 keeps this in local state only.
-      </p>
 
       <Link href="/" className={primaryButtonClass}>
         Go to Today

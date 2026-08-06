@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { Checkin, Commitment, CommitmentsHit } from "@/types";
 import { formatLong, today } from "@/lib/date";
+import { saveCheckinAction } from "@/app/actions";
 
 /**
  * F3 — the daily check-in. Target is under 60 seconds, which drives every choice
@@ -19,11 +21,15 @@ export function CheckinForm({
   commitments: Commitment[];
   existing: Checkin | null;
 }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
   const [hit, setHit] = useState<CommitmentsHit>(
     existing?.commitments_hit ?? {},
   );
   const [note, setNote] = useState(existing?.note ?? "");
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const hitCount = Object.values(hit).filter(Boolean).length;
 
@@ -33,8 +39,24 @@ export function CheckinForm({
   }
 
   function onSave() {
-    // Phase 2: await saveCheckin({ date: today(), note, commitments_hit: hit })
-    setSaved(true);
+    setError(null);
+
+    startTransition(async () => {
+      const result = await saveCheckinAction({
+        date: today(),
+        note,
+        commitments_hit: hit,
+      });
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setSaved(true);
+      // Pull the fresh check-in list and updated week counts the action revalidated.
+      router.refresh();
+    });
   }
 
   return (
@@ -107,9 +129,10 @@ export function CheckinForm({
         <button
           type="button"
           onClick={onSave}
-          className="rounded-md bg-white px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-neutral-200"
+          disabled={pending}
+          className="rounded-md bg-white px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
         >
-          Save check-in
+          {pending ? "Saving…" : "Save check-in"}
         </button>
 
         <p className="text-sm text-neutral-500" aria-live="polite">
@@ -119,9 +142,9 @@ export function CheckinForm({
         </p>
       </div>
 
-      {saved && (
-        <p className="text-xs text-neutral-600">
-          Not stored yet — Phase 1 keeps this in local state only.
+      {error && (
+        <p role="alert" className="text-sm text-red-400">
+          {error}
         </p>
       )}
     </div>

@@ -10,6 +10,7 @@ import type {
   UUID,
 } from "@/types";
 import { deriveTodayAction } from "@/lib/today-action";
+import { pointsFor } from "@/lib/scoring";
 import { today } from "@/lib/date";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
@@ -160,13 +161,15 @@ export async function createGoal(input: NewGoalInput): Promise<Goal> {
  * today's entry should not create a second row. The `unique (user_id, date)`
  * constraint makes the upsert authoritative rather than racy.
  *
- * Scoring is a placeholder: 10 points per commitment hit, plus 5 for showing up.
- * F5 defines the real rules and is out of scope here.
+ * Points come from `lib/scoring.ts` (F5). They are stored so a check-in keeps the
+ * score it earned under the rules in force that day; the history view recomputes for
+ * display, so changing the rules does not silently rewrite the past.
  */
 export async function saveCheckin(draft: CheckinDraft): Promise<Checkin> {
   const userId = await requireUserId();
-  const hitCount = Object.values(draft.commitments_hit).filter(Boolean).length;
-  const points = hitCount * 10 + (hitCount > 0 ? 5 : 0);
+  const points = pointsFor({
+    commitments_hit: draft.commitments_hit,
+  } as Checkin);
 
   const supabase = await createServerClient();
   const { data, error } = await supabase

@@ -92,9 +92,14 @@ real day, not a failure.** This is what keeps the streak alive on a heavy work d
 | LLM | **Groq free tier** | No card. Production allowed. Contractually barred from training on inputs. |
 | PWA | manifest + installable | No App Store fee |
 
-**Model routing:**
-- `llama-3.3-70b-versatile` → drift verdicts, weekly reviews (judgment quality matters). **1,000 req/day**
-- `llama-3.1-8b-instant` → cheap/bulk calls. **14,400 req/day, 30 req/min, 6k tokens/min**
+**Model routing** (re-verified against the live models endpoint 2026-08-19 — Groq retired the
+Llama line, so the originally planned `llama-3.3-70b-versatile` / `llama-3.1-8b-instant` no
+longer exist. These are open-weight models running on Groq hardware; inputs never reach
+OpenAI, so the no-training-on-inputs reason for choosing Groq still holds):
+- `openai/gpt-oss-120b` → drift verdicts, weekly reviews (judgment quality matters)
+- `openai/gpt-oss-20b` → cheap/bulk calls
+- Observed free-tier headers: **1,000 req/day, 8k tokens/min**. Model ids are not stable —
+  re-check the endpoint if calls start 404ing.
 
 **Hard rules:**
 - Provider-agnostic model layer from day one → swapping to Claude must be a one-line change.
